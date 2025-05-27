@@ -46,4 +46,28 @@ imshow(f, new_fig=False, title="Imagen Original")
 plt.subplot(223, sharex=ax, sharey=ax), imshow(gcan2, new_fig=False, title="Canny - U1=40% | U2=50%")
 plt.show(block=False)
 
+# ---- Clausura (Closing) -----------------------
+A = gcan2
+#imshow(A, title="Imagen Original")
+
+B = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+Aclau = cv2.morphologyEx(A, cv2.MORPH_CLOSE, B)
+
+plt.figure()
+ax1 = plt.subplot(121); imshow(A, new_fig=False, title="Original")
+plt.subplot(122, sharex=ax1, sharey=ax1); imshow(Aclau, new_fig=False, title="Clausura")
+plt.show(block=False)
+
+# ---- Componentes conectados -----------------------
+connectivity = 4
+num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(Aclau, 
+connectivity, cv2.CV_32S)
+
+im_color = cv2.applyColorMap(np.uint8(255/num_labels*labels), cv2.COLORMAP_JET)
+for centroid in centroids:
+    cv2.circle(im_color, tuple(np.int32(centroid)), 9, color=(255,255,255), thickness=-1)
+for st in stats:
+    cv2.rectangle(im_color,(st[0],st[1]),(st[0]+st[2],st[1]+st[3]),color=(0,255,0),thickness=2)
+imshow(img=im_color, color_img=True)
+
 
