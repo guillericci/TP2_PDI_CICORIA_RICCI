@@ -157,7 +157,66 @@ plt.imshow(labeled_image)
 plt.title("Clasificación: Verde = círculo, Azul = cuadrado, Rojo = otro")
 plt.show(block=False)
 
- 
+#- -----RESISTENCIAS------
+# --- Parámetros ---------------------------------------------------------------
+AREA_MIN = 3000
+AREA_MAX = 10000           # Área maxima para descartar ruido
+ASPECT_RATIO_TH = 2.5    # Umbral de relación de aspecto para considerar resistencia
+H, W = img.shape[:2]
+aux = np.zeros_like(labels)
+labeled_image = cv2.merge([aux, aux, aux])  # Imagen en RGB
+
+# --- Clasificación por relación de aspecto -----------------------------------
+for i in range(1, num_labels):
+
+    # --- Descarto objetos que tocan el borde ---------------------------------
+    if (stats[i, cv2.CC_STAT_LEFT] == 0 or 
+        stats[i, cv2.CC_STAT_TOP] == 0 or 
+        stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH] == W or 
+        stats[i, cv2.CC_STAT_TOP] + stats[i, cv2.CC_STAT_HEIGHT] == H):
+        continue
+    # --- Descarto objetos Chicos -------------------------------------------
+    if stats[i, cv2.CC_STAT_AREA] < AREA_MIN:
+        continue
+    # --- Descarto objetos grandes -------------------------------------------
+    if stats[i, cv2.CC_STAT_AREA] > AREA_MAX:
+        continue
+
+    # --- Máscara del objeto --------------------------------------------------
+    obj = (labels == i).astype(np.uint8)
+
+    # --- Cálculo relación de aspecto -----------------------------------------
+    width = stats[i, cv2.CC_STAT_WIDTH]
+    height = stats[i, cv2.CC_STAT_HEIGHT]
+    if height == 0:
+        continue
+    aspect_ratio = width / height
+
+    # --- Clasificación -------------------------------------------------------
+    # --- Cálculo relación de aspecto robusta -------------------------------------
+    width = stats[i, cv2.CC_STAT_WIDTH]
+    height = stats[i, cv2.CC_STAT_HEIGHT]
+    if width == 0 or height == 0:
+        continue
+    aspect_ratio = max(width, height) / min(width, height)
+
+    # --- Clasificación como resistencia ------------------------------------------
+    is_resistor = aspect_ratio > ASPECT_RATIO_TH
+
+    print(f"Objeto {i:2d} --> Resistencia: {is_resistor}  /  Aspect Ratio: {aspect_ratio:.2f}")
+
+    # --- Visualización -------------------------------------------------------
+    if is_resistor:
+        labeled_image[obj == 1, 2] = 255  # Azul para resistencias
+    else:
+        labeled_image[obj == 1, 0] = 255  # Rojo para no-resistencias
+
+# --- Visualización final -----------------------------------------------------
+plt.figure()
+plt.imshow(labeled_image)
+plt.title("Clasificación: Azul = resistencia, Rojo = otro")
+plt.show(block=False)
+
 
 #AREA CHIP: 178164
 #RESISTENCIAS_relacion:0.5
