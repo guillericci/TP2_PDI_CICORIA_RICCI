@@ -27,17 +27,24 @@ def imshow(img, new_fig=True, title=None, color_img=False, blocking=False, color
         plt.colorbar()
     if new_fig:        
         plt.show(block=blocking)
-# --- CANNY ----
+# --- Filtro --------------------------------------------------------------------------------------
+img_fil = cv2.medianBlur(img, 5)
+plt.figure(), plt.imshow(img_fil), plt.show(block=False)
+
+# --- Binarizo ------------------------------------------------------------------------------------
+th, binary_img = cv2.threshold(img_fil, 125, 1, cv2.THRESH_OTSU)
+plt.figure(), plt.imshow(binary_img, cmap='gray'), plt.show(block=False)
+# --- Filtro gausiano
 f = img
-imshow(f)		 
 
 f_blur = cv2.GaussianBlur(f, ksize=(3, 3), sigmaX=1.5)
 plt.figure()
 ax = plt.subplot(121)
 imshow(f, new_fig=False, title="Imagen Original", ticks=True)
-plt.subplot(122, sharex=ax, sharey=ax), imshow(f_blur, new_fig=False, title="Gaussian Blur")
+plt.subplot(122, sharex=ax, sharey=ax), imshow(binary_img, new_fig=False, title="Gaussian Blur")
 plt.show(block=False)		 
 
+# --- CANNY ----
 gcan2 = cv2.Canny(f_blur, threshold1=0.3*255, threshold2=0.5*255) #0.4-0.5, 0304
 
 plt.figure()
@@ -48,6 +55,7 @@ plt.show(block=False)
 
 
 # ---- Clausura (Closing) -----------------------
+
 A = gcan2
 #imshow(A, title="Imagen Original")
 
@@ -93,15 +101,22 @@ for i in range(1, num_labels):
 
 imshow(img=im_color, color_img=True)
 
-
+# --- CAPACITORES ---Hay que ajustar parametros de tamaños de capacitores
 # --- Parámetros ---------------------------------------------------------------
 RHO_TH = 0.35      # Umbral del factor de forma para círculo
 AREA_TH = 12000     # Área mínima
 SQUARE_TOL = 0.2   # Tolerancia para considerar proporcion cuadrada (20%)
 H, W = img.shape[:2]
 aux = np.zeros_like(labels)
-labeled_image = cv2.merge([aux, aux, aux])  # Imagen en RGB
-
+labeled_image = cv2.merge([aux, aux, aux])  # Imagen en RGB 
+TAM_PEQ = 20000
+TAM_MED = 76900
+TAM_GRANDE = 77000
+# Contadores por categoría
+cant_pequeños = 0
+cant_medianos = 0
+cant_grandes = 0
+cant_muy_grandes = 0
 # --- Clasificación ------------------------------------------------------------
 for i in range(1, num_labels):
 
@@ -144,26 +159,60 @@ for i in range(1, num_labels):
     print(f"Objeto {i:2d} --> Circular: {flag_circular}  /  Cuadrado: {flag_square_like}  /  Rho: {rho:.3f}  /  WH_ratio: {ratio:.2f}")
 
     # --- Clasificación visual ------------------------------------------------
-    if flag_circular or flag_square_like:
-        labeled_image[obj_filled == 1, 1] = 255  # Verde = círculo
+    #if flag_circular or flag_square_like:
+    #    labeled_image[obj_filled == 1, 1] = 255  # Verde = círculo
     #elif flag_square_like:
         #labeled_image[obj_filled == 1, 2] = 255  # Azul = cuadrado o capacitor
-    else:
-        labeled_image[obj_filled == 1, 0] = 255  # Rojo = otra forma
+    #else:
+    #    labeled_image[obj_filled == 1, 0] = 255  # Rojo = otra forma
 
-# --- Visualización ------------------------------------------------------------
+    # --- Clasificación por tamaño físico -------------------------------------
+    if flag_circular or flag_square_like:
+        if area < TAM_PEQ:
+            cant_pequeños += 1
+            labeled_image[obj_filled == 1] = (0, 255, 0)        # Verde: Pequeño
+        elif area < TAM_MED:
+            cant_medianos += 1
+            labeled_image[obj_filled == 1] = (0, 0, 255)        # Rojo: Mediano
+        elif area < TAM_GRANDE:
+            cant_grandes += 1
+            labeled_image[obj_filled == 1] = (0, 0, 180)        # Azul: Grande
+        else:
+            cant_muy_grandes += 1
+            labeled_image[obj_filled == 1] = (255, 0, 255)      # Magenta: Muy grande
+    else:
+        labeled_image[obj_filled == 1] = (50,50,50)  # gris = otra forma
+
+
+# --- Resultados ------------------------------------------------------------------
+print(f"\nCapacitores electrolíticos detectados:")
+print(f"- Muy grandes : {cant_muy_grandes}")
+print(f"- Grandes     : {cant_grandes}")
+print(f"- Medianos    : {cant_medianos}")
+print(f"- Pequeños    : {cant_pequeños}")
+
+# --- Visualización final ---------------------------------------------------------
 plt.figure()
 plt.imshow(labeled_image)
-plt.title("Clasificación: Verde = círculo, Azul = cuadrado, Rojo = otro")
+plt.title("Clasificación de capacitores electrolíticos:\nVerde=pequeño, Rojo=mediano, Azul=grande, Magenta=muy grande")
+plt.axis("off")
 plt.show(block=False)
 
-#- -----RESISTENCIAS------
+# --- Visualización ------------------------------------------------------------
+#plt.figure()
+#plt.imshow(labeled_image)
+#plt.title("Clasificación: Verde = círculo, Azul = cuadrado, Rojo = otro")
+#plt.show(block=False)
+
+
+# -----RESISTENCIAS------
 # --- Parámetros ---------------------------------------------------------------
 AREA_MIN = 3000
 AREA_MAX = 10000           # Área maxima para descartar ruido
 ASPECT_RATIO_TH = 2.5    # Umbral de relación de aspecto para considerar resistencia
 H, W = img.shape[:2]
 aux = np.zeros_like(labels)
+cant_resistencias = 0
 labeled_image = cv2.merge([aux, aux, aux])  # Imagen en RGB
 
 # --- Clasificación por relación de aspecto -----------------------------------
@@ -175,6 +224,11 @@ for i in range(1, num_labels):
         stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH] == W or 
         stats[i, cv2.CC_STAT_TOP] + stats[i, cv2.CC_STAT_HEIGHT] == H):
         continue
+
+    # --- Descarto objetos fuera de la región válida para resistencias (por Y) --- NO SE SI ESTA BIEN HACER ESTO
+    if stats[i, cv2.CC_STAT_TOP] < 700:
+        continue
+
     # --- Descarto objetos Chicos -------------------------------------------
     if stats[i, cv2.CC_STAT_AREA] < AREA_MIN:
         continue
@@ -193,7 +247,7 @@ for i in range(1, num_labels):
     aspect_ratio = width / height
 
     # --- Clasificación -------------------------------------------------------
-    # --- Cálculo relación de aspecto robusta -------------------------------------
+    # --- Cálculo relación de aspecto -------------------------------------
     width = stats[i, cv2.CC_STAT_WIDTH]
     height = stats[i, cv2.CC_STAT_HEIGHT]
     if width == 0 or height == 0:
@@ -207,15 +261,19 @@ for i in range(1, num_labels):
 
     # --- Visualización -------------------------------------------------------
     if is_resistor:
-        labeled_image[obj == 1, 2] = 255  # Azul para resistencias
+        cant_resistencias +=1
+        labeled_image[obj == 1, 1] = 255  # Verde para resistencias
     else:
         labeled_image[obj == 1, 0] = 255  # Rojo para no-resistencias
 
 # --- Visualización final -----------------------------------------------------
 plt.figure()
 plt.imshow(labeled_image)
-plt.title("Clasificación: Azul = resistencia, Rojo = otro")
+plt.title(f"Clasificación: Verde = resistencia, Rojo = otro\n Cantidad de Resistencias: {cant_resistencias}")
 plt.show(block=False)
+
+# -- Resultado por consola --
+print(f"Se pudieron encontrar {cant_resistencias} resistencias en la placa.") 
 
 
 #AREA CHIP: 178164
