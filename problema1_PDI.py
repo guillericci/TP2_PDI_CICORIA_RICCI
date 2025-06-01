@@ -109,8 +109,8 @@ SQUARE_TOL = 0.2   # Tolerancia para considerar proporcion cuadrada (20%)
 H, W = img.shape[:2]
 aux = np.zeros_like(labels)
 labeled_image = cv2.merge([aux, aux, aux])  # Imagen en RGB 
-TAM_PEQ = 20000
-TAM_MED = 76900
+TAM_PEQ = 24000#20000
+TAM_MED = 60000#76900
 TAM_GRANDE = 77000
 # Contadores por categoría
 cant_pequeños = 0
@@ -156,7 +156,8 @@ for i in range(1, num_labels):
     ratio = bbox_width / bbox_height
     flag_square_like = (1 - SQUARE_TOL) <= ratio <= (1 + SQUARE_TOL)
 
-    print(f"Objeto {i:2d} --> Circular: {flag_circular}  /  Cuadrado: {flag_square_like}  /  Rho: {rho:.3f}  /  WH_ratio: {ratio:.2f}")
+    #print(f"Objeto {i:2d} --> Circular: {flag_circular}  /  Cuadrado: {flag_square_like}  /  Rho: {rho:.3f}  /  WH_ratio: {ratio:.2f}")
+    print(f"Objeto {i:2d} --> Área: {area:.0f}  /  Circular: {rho > RHO_TH}  /  Rho: {rho:.3f}  /  WH_ratio: {ratio:.2f}")
 
     # --- Clasificación visual ------------------------------------------------
     #if flag_circular or flag_square_like:
