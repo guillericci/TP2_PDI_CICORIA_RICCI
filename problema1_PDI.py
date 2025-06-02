@@ -32,16 +32,16 @@ img_fil = cv2.medianBlur(img, 5)
 plt.figure(), plt.imshow(img_fil), plt.show(block=False)
 
 # --- Binarizo ------------------------------------------------------------------------------------
-th, binary_img = cv2.threshold(img_fil, 125, 1, cv2.THRESH_OTSU)
-plt.figure(), plt.imshow(binary_img, cmap='gray'), plt.show(block=False)
+#th, binary_img = cv2.threshold(img_fil, 125, 1, cv2.THRESH_OTSU)
+#plt.figure(), plt.imshow(binary_img, cmap='gray'), plt.show(block=False)
 # --- Filtro gausiano
-f = img
 
+f = img
 f_blur = cv2.GaussianBlur(f, ksize=(3, 3), sigmaX=1.5)
 plt.figure()
 ax = plt.subplot(121)
 imshow(f, new_fig=False, title="Imagen Original", ticks=True)
-plt.subplot(122, sharex=ax, sharey=ax), imshow(binary_img, new_fig=False, title="Gaussian Blur")
+plt.subplot(122, sharex=ax, sharey=ax), imshow(f_blur, new_fig=False, title="Gaussian Blur")
 plt.show(block=False)		 
 
 # --- CANNY ----
