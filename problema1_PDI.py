@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 import os
 
 # --- Cargo imagen ---
-img_path = os.path.join(os.getcwd(), 'placa.png') 
+#img_path = os.path.join(os.getcwd(), 'placa.png') 
+img_path = r'D:\TUIA\PROCESAMIENTO IMAGEN\TP2_PDI\TP2_PDI_CICORIA_RICCI\Resistencias_out\R8_a_out.jpg'
 img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE) 
 
 if img is None:
@@ -45,7 +46,7 @@ plt.subplot(122, sharex=ax, sharey=ax), imshow(f_blur, new_fig=False, title="Gau
 plt.show(block=False)		 
 
 # --- CANNY ----
-gcan2 = cv2.Canny(f_blur, threshold1=0.3*255, threshold2=0.5*255) #0.4-0.5, 0304
+gcan2 = cv2.Canny(f_blur, threshold1=0.4*255, threshold2=0.5*255) #0.4-0.5, 0304
 
 plt.figure()
 ax = plt.subplot(221)
@@ -75,8 +76,7 @@ plt.show(block=False)
 
 # ---- Componentes conectados -----------------------
 connectivity = 8
-num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(Aclau, 
-connectivity, cv2.CV_32S)#cv2.CV_32S cv2.CC_STAT_AREA
+num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(Aclau, connectivity, cv2.CV_32S)#cv2.CV_32S cv2.CC_STAT_AREA
 
 # ---- Bounding box (codigo profe)
 #im_color = cv2.applyColorMap(np.uint8(255/num_labels*labels), cv2.COLORMAP_JET)
@@ -87,7 +87,7 @@ connectivity, cv2.CV_32S)#cv2.CV_32S cv2.CC_STAT_AREA
 #imshow(img=im_color, color_img=True)
 
 # ---- Bounding box ------- 
-MIN_AREA = 3000
+MIN_AREA = 10000
 im_color = cv2.applyColorMap(np.uint8(255 / num_labels * labels), cv2.COLORMAP_JET)
 
 for centroid in centroids[1:]:  # Omitimos el fondo

@@ -35,7 +35,7 @@ def rectify_resistor(image_path):
 
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-    # 🔵 Rango HSV mejorado para el azul
+    # 🔵 Rango HSV  para el azul
     lower_blue = np.array([80, 30, 30])
     upper_blue = np.array([140, 255, 255])
     mask = cv2.inRange(hsv, lower_blue, upper_blue)
@@ -45,7 +45,7 @@ def rectify_resistor(image_path):
     kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (22, 11))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
 
-    # ✨ NUEVO: DILATACIÓN para cerrar huecos por alambres
+    # ✨ DILATACIÓN para cerrar huecos por alambres
     kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
     mask = cv2.dilate(mask, kernel_dilate, iterations=1)
 

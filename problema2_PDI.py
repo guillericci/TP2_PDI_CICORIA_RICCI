@@ -2,94 +2,38 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-import imutils
-from sklearn.cluster import KMeans
+from itertools import groupby
+from operator import itemgetter
 from scipy.signal import find_peaks
-# Ruta de entrada y salida
+from pathlib import Path
+
 INPUT_DIR = r"D:\TUIA\PROCESAMIENTO IMAGEN\TP2_PDI\TP2_PDI_CICORIA_RICCI\Resistencias"
 OUTPUT_DIR = r"D:\TUIA\PROCESAMIENTO IMAGEN\TP2_PDI\TP2_PDI_CICORIA_RICCI\Resistencias_out"
-
-def imshow(img, new_fig=True, title=None, color_img=False, blocking=False, colorbar=False, ticks=False):
-    if new_fig:
-        plt.figure()
-    if color_img:
-        plt.imshow(img)
-    else:
-        plt.imshow(img, cmap='gray')
-    plt.title(title)
-    if not ticks:
-        plt.xticks([]), plt.yticks([])
-    if colorbar:
-        plt.colorbar()
-    if new_fig:
-        plt.show(block=blocking)
-
-#image = cv2.imread(r"D:\TUIA\PROCESAMIENTO IMAGEN\TP2_PDI\TP2_PDI_CICORIA_RICCI\Resistencias\R1_a.jpg")
-   # Acá puede verse que OpenCV, por default, carga las imágenes color en formato BGR, no RGB.
-#img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-#imshow(img_RGB, title="Imagen Original con planos re-acomodados (BGR --> RGB)")
-#hsv = cv2.cvtColor(img_RGB, cv2.COLOR_RGB2HSV)
-#imshow(hsv, title="Imagen Original HSV") 
-"""
-image = cv2.imread(r"D:\TUIA\PROCESAMIENTO IMAGEN\TP2_PDI\TP2_PDI_CICORIA_RICCI\Resistencias\R1_a.jpg")
-if image is None:
-    print(f"No se pudo leer la imagen {image}")
-    return None
-
-# Convertimos a escala de grises
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-# Suavizado para reducir ruido
-blurred = cv2.GaussianBlur(gray, ksize=(3, 3), sigmaX=1.5)
-
-# Detección de bordes
-edges = cv2.Canny(blurred, threshold1=0.3*255, threshold2=0.5*255)#50,150
-imshow(edges, colorbar=False, title="Detección de bordes")
-
-#kernel = np.ones((5, 5), np.uint8)
-kernel =cv2.getStructuringElement(cv2.MORPH_RECT, (22, 11))
-mask = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
-
-plt.figure()
-ax1 = plt.subplot(121); imshow(edges, new_fig=False, title="Original")
-plt.subplot(122, sharex=ax1, sharey=ax1); imshow(mask, new_fig=False, title="Clausura")
-plt.show(block=False)
-
-# Encontrar contornos
-contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-"""
-
 DEBUG_DIR = "debug_fallas"
-#VERSION QUE ANDA:
+
 def rectify_resistor(image_path):
+    """
+    Detecta el rectángulo azul de la resistencia en la imagen y lo “endereza” (rectifica),
+      generando una vista frontal  del cuerpo de la resistencia.
+    """
     image = cv2.imread(image_path)
     if image is None:
         print(f"No se pudo leer la imagen {image_path}")
         return None
 
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-
-    # 🔵 Rango HSV mejorado para el azul
     lower_blue = np.array([80, 30, 30])
     upper_blue = np.array([140, 255, 255])
     mask = cv2.inRange(hsv, lower_blue, upper_blue)
-    
-    # 🌀 Blur y morfología
     mask = cv2.GaussianBlur(mask, (3, 3), sigmaX=1.5)
     kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (22, 11))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
-
-    # ✨ NUEVO: DILATACIÓN para cerrar huecos por alambres
     kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
     mask = cv2.dilate(mask, kernel_dilate, iterations=1)
-
-    # Contornos
     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         print(f"[FALLO] Sin contornos en {image_path}")
-        save_debug_images(image_path, image, mask)
         return None
-     
     max_area = 0
     best_approx = None
     for cnt in contours:
@@ -100,34 +44,26 @@ def rectify_resistor(image_path):
                 best_approx = approx
                 max_area = area
             elif best_approx is None:
-                # Fallback con rectángulo mínimo
                 rect = cv2.minAreaRect(cnt)
                 box = cv2.boxPoints(rect)
-                box = np.int0(box)
+                box = box.astype(np.intp)
                 if area > max_area:
                     best_approx = box
                     max_area = area
-
     if best_approx is None:
         print(f"[FALLO] Sin rectángulo en {image_path}")
         return None
-
     pts = best_approx.reshape(4, 2).astype("float32")
-
-    # Ordenar los puntos para homografía (top-left, top-right, bottom-right, bottom-left)
     def order_points(pts):
         rect = np.zeros((4, 2), dtype="float32")
         s = pts.sum(axis=1)
         rect[0] = pts[np.argmin(s)]
         rect[2] = pts[np.argmax(s)]
-
         diff = np.diff(pts, axis=1)
         rect[1] = pts[np.argmin(diff)]
         rect[3] = pts[np.argmax(diff)]
         return rect
-
     rect = order_points(pts)
-
     width = 400
     height = 150
     dst = np.array([
@@ -136,29 +72,253 @@ def rectify_resistor(image_path):
         [width - 1, height - 1],
         [0, height - 1]
     ], dtype="float32")
-
     H, status = cv2.findHomography(rect, dst)
     warped = cv2.warpPerspective(image, H, (width, height))
-
     return warped
-#---
-def save_debug_images(image_path, image, mask, contours=None):
+
+def preproceso_deteccion(image):
     """
-    Guarda la máscara y los contornos sobre la imagen original para debug.
+    Recorta el cuerpo de la resistencia dentro de la imagen (elimina extremos y fondos),
+      usando máscaras para separar el cuerpo del fondo azul.
     """
-    if not os.path.exists(DEBUG_DIR):
-        os.makedirs(DEBUG_DIR)
+    h, w = image.shape[:2]
+    margin = 10
+    x1_margin = margin
+    y1_margin = margin
+    x2_margin = w - margin
+    y2_margin = h - margin
+    if x2_margin <= x1_margin or y2_margin <= y1_margin:
+        print("La imagen es demasiado pequeña para recortar con margen de 10 píxeles.")
+        return None
+    image_cropped = image[y1_margin:y2_margin, x1_margin:x2_margin]
+    hsv = cv2.cvtColor(image_cropped, cv2.COLOR_BGR2HSV)
+    lower_blue = np.array([100, 50, 20])
+    upper_blue = np.array([130, 255, 255])
+    mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
+    mask_resistor = cv2.bitwise_not(mask_blue)
+    white_bg = np.full_like(image_cropped, 255)
+    resistor_only = np.where(mask_resistor[:, :, np.newaxis] == 255, image_cropped, white_bg)
+    # plt.figure(figsize=(12, 4))
+    # plt.subplot(1, 3, 1); plt.imshow(cv2.cvtColor(image_cropped, cv2.COLOR_BGR2RGB)); plt.title("Original recortada")
+    # plt.subplot(1, 3, 2); plt.imshow(mask_resistor, cmap='gray'); plt.title("Máscara Resistencia")
+    # plt.subplot(1, 3, 3); plt.imshow(cv2.cvtColor(resistor_only, cv2.COLOR_BGR2RGB)); plt.title("Solo Resistencia")
+    # plt.tight_layout(); plt.show()
+    proj_vertical = np.sum(mask_resistor, axis=0)
+    umbral = 5000
+    columnas_blancas = np.where(proj_vertical > umbral)[0]
+    def mayor_rango_consecutivo(indices):
+        groups = []
+        for k, g in groupby(enumerate(indices), lambda x: x[0] - x[1]):
+            group = list(map(itemgetter(1), g))
+            groups.append(group)
+        longest = max(groups, key=len)
+        return longest[0], longest[-1]
+    if len(columnas_blancas) > 0:
+        x1_body, x2_body = mayor_rango_consecutivo(columnas_blancas)
+        mask_cuerpo = np.zeros_like(mask_resistor)
+        mask_cuerpo[:, x1_body:x2_body] = mask_resistor[:, x1_body:x2_body]
+        img_cuerpo = np.where(mask_cuerpo[:, :, np.newaxis] == 255, image_cropped, white_bg).astype(np.uint8)
+        filas_con_contenido = np.where(np.any(mask_cuerpo == 255, axis=1))[0]
+        if len(filas_con_contenido) == 0:
+            print("No se encontraron filas con contenido en el cuerpo.")
+            return None
+        y1_body, y2_body = filas_con_contenido[0], filas_con_contenido[-1]
+        img_cuerpo_recortado = img_cuerpo[y1_body:y2_body, x1_body:x2_body]
+        # Ajuste: recortar 10 píxeles arriba y abajo, y 5 píxeles a los costados
+        recorte_arriba = 10
+        recorte_abajo = 10
+        recorte_izquierda = 5
+        recorte_derecha = 5
+        h_c, w_c = img_cuerpo_recortado.shape[:2]
+        y_start = recorte_arriba if h_c > 2 * recorte_arriba else 0
+        y_end = h_c - recorte_abajo if h_c > 2 * recorte_abajo else h_c
+        x_start = recorte_izquierda if w_c > 2 * recorte_izquierda else 0
+        x_end = w_c - recorte_derecha if w_c > 2 * recorte_derecha else w_c
+        img_cuerpo_recortado = img_cuerpo_recortado[y_start:y_end, x_start:x_end]
+        # plt.figure(figsize=(12, 4))
+        # plt.subplot(1, 3, 1); plt.imshow(mask_resistor, cmap='gray'); plt.title("Máscara original")
+        # plt.subplot(1, 3, 2); plt.plot(proj_vertical); plt.axvline(x1_body, color='r'); plt.axvline(x2_body, color='r'); plt.title("Proyección vertical")
+        # plt.subplot(1, 3, 3); plt.imshow(cv2.cvtColor(img_cuerpo_recortado, cv2.COLOR_BGR2RGB)); plt.title("Cuerpo recortado final")
+        # plt.tight_layout(); plt.show()
+        print(f"Recorte final: columnas {x1_body + x_start}-{x1_body + x_end}, filas {y1_body + y_start}-{y1_body + y_end}")
+        return img_cuerpo_recortado
 
-    base_name = os.path.splitext(os.path.basename(image_path))[0]
+def definir_colores_hsv():
+    """
+    Define los rangos HSV para los diferentes colores de bandas de resistencias.
+    """
+    return {
+        'Negro': {'hsv_range': [(np.array([0, 0, 0]), np.array([180, 255, 70]))]},
+        'Marrón': {'hsv_range': [(np.array([0, 90, 0]), np.array([11, 260, 130]))]},
+        'Rojo': {'hsv_range': [(np.array([0, 80, 60]), np.array([12, 255, 255]))]},
+        'Naranja': {'hsv_range': [(np.array([10, 120, 140]), np.array([20, 255, 255]))]},
+        'Amarillo': {'hsv_range': [(np.array([17, 80, 150]), np.array([40, 255, 255]))]},
+        'Verde': {'hsv_range': [(np.array([20, 60, 60]), np.array([75, 255, 255]))]},
+        'Azul': {'hsv_range': [(np.array([90, 100, 80]), np.array([130, 255, 255]))]},
+        'Violeta': {'hsv_range': [(np.array([110, 60, 80]), np.array([180, 255, 255]))]},
+        'Gris': {'hsv_range': [(np.array([0, 0, 50]), np.array([180, 40, 160]))]},
+        'Blanco': {'hsv_range': [(np.array([0, 0, 130]), np.array([180, 80, 255]))]},
+        'Plata': {'hsv_range': [(np.array([0, 0, 120]), np.array([180, 15, 200]))]},
+        'Dorado': {'hsv_range': [(np.array([15, 30, 120]), np.array([35, 180, 255]))]}
+    }
 
-    cv2.imwrite(os.path.join(DEBUG_DIR, f"{base_name}_mask.png"), mask)
+def detectar_color_region(region_hsv, config_color):
+    """
+    Cuenta cuántos píxeles de una región HSV están dentro de un rango de color específico.
+    """
+    pixeles_totales = 0
+    for hsv_bajo, hsv_alto in config_color['hsv_range']:
+        mascara = cv2.inRange(region_hsv, hsv_bajo, hsv_alto)
+        pixeles_totales += cv2.countNonZero(mascara)
+    return pixeles_totales
 
-    if contours:
-        debug = image.copy()
-        cv2.drawContours(debug, contours, -1, (0, 255, 0), 2)
-        cv2.imwrite(os.path.join(DEBUG_DIR, f"{base_name}_contours.png"), debug)
-    else:
-        cv2.imwrite(os.path.join(DEBUG_DIR, f"{base_name}_no_contours.png"), image)
+def identificar_colores_bandas(img_bgr, posiciones_bandas, mascara, definiciones_colores):
+    """
+    Para cada posición de banda detectada, determina el color dominante según los rangos HSV definidos.
+    """ 
+    if not posiciones_bandas:
+        return []
+    img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    colores = []
+    ancho_banda = 5
+    # plt.figure(figsize=(12, 2))
+    for i, pos_x in enumerate(posiciones_bandas):
+        x_inicio = max(0, pos_x - ancho_banda // 2)
+        x_fin = min(img_bgr.shape[1], pos_x + ancho_banda // 2)
+        coords_y = np.where(mascara[:, pos_x] > 0)[0]
+        if len(coords_y) > 0:
+            y_inicio, y_fin = coords_y[0], coords_y[-1]
+        else:
+            y_inicio = img_bgr.shape[0] // 3
+            y_fin = img_bgr.shape[0] * 2 // 3
+        region_hsv = img_hsv[y_inicio:y_fin, x_inicio:x_fin]
+        region_bgr = img_bgr[y_inicio:y_fin, x_inicio:x_fin]
+        # Mostrar franja que se analiza para la banda (comentado)
+        # plt.subplot(1, len(posiciones_bandas), i+1)
+        # plt.imshow(cv2.cvtColor(region_bgr, cv2.COLOR_BGR2RGB))
+        # plt.title(f"Banda {i+1}")
+        # plt.axis('off')
+        mejor_coincidencia = 'Desconocido'
+        max_pixeles = 0
+        for nombre_color, config_color in definiciones_colores.items():
+            pixeles = detectar_color_region(region_hsv, config_color)
+            if pixeles > max_pixeles:
+                max_pixeles = pixeles
+                mejor_coincidencia = nombre_color
+        if max_pixeles > 0:
+            colores.append(mejor_coincidencia)
+        else:
+            colores.append('Desconocido')
+    # plt.suptitle("Franjas analizadas para cada banda")
+    # plt.tight_layout()
+    # plt.show()
+    return colores
+
+def mostrar_valores_hsv_por_banda(img_bgr, posiciones_bandas, mascara):
+    """
+    Calcula y mouestra el promedio HSV de cada banda, útil para debug/análisis.
+    """
+    # img_bgr = cv2.GaussianBlur(img_bgr, (5, 5), 0)
+    # img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    # ancho_banda = 5
+    # print("Valores promedio HSV por banda:")
+    # for i, pos_x in enumerate(posiciones_bandas):
+    #     x_inicio = max(0, pos_x - ancho_banda // 2)
+    #     x_fin = min(img_bgr.shape[1], pos_x + ancho_banda // 2)
+    #     coords_y = np.where(mascara[:, pos_x] > 0)[0]
+    #     if len(coords_y) > 0:
+    #         y_inicio, y_fin = coords_y[0], coords_y[-1]
+    #     else:
+    #         y_inicio = img_bgr.shape[0] // 3
+    #         y_fin = img_bgr.shape[0] * 2 // 3
+    #     region_hsv = img_hsv[y_inicio:y_fin, x_inicio:x_fin]
+    #     h_mean = np.mean(region_hsv[:, :, 0])
+    #     s_mean = np.mean(region_hsv[:, :, 1])
+    #     v_mean = np.mean(region_hsv[:, :, 2])
+    #     print(f"Banda {i+1}: H={h_mean:.1f}, S={s_mean:.1f}, V={v_mean:.1f}")
+    pass
+
+def detectar_bandas_sobel_y_colores(img_cuerpo, plot=True):
+    """
+    Detecta automáticamente las posiciones de las bandas de colores usando
+      el gradiente Sobel (bordes verticales), y llama a la función para identificar colores.
+    """
+    # --- Detección de picos por Sobel ---
+    gray = cv2.cvtColor(img_cuerpo, cv2.COLOR_BGR2GRAY)
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+    sobelx = np.abs(sobelx)
+    sobelx = np.uint8(sobelx)
+    proj = np.sum(sobelx, axis=0)
+    distance = 3
+    prominence = 300
+
+    peaks, _ = find_peaks(proj, distance=distance, prominence=prominence)
+    # peaks_originales = list(peaks)  # (Comentado, gráfico innecesario)
+
+    if len(peaks) < 8:
+        #print(f"Se detectaron solo {len(peaks)} picos con prominence={prominence}, reintentando con prominence=150")
+        prominence = 150
+        peaks, _ = find_peaks(proj, distance=distance, prominence=prominence)
+        # peaks_originales = list(peaks)  # (Comentado, gráfico innecesario)
+
+    # Gráficos comentados:
+    # if plot:
+    #     plt.figure(figsize=(12,4))
+    #     plt.subplot(1,2,1)
+    #     plt.imshow(cv2.cvtColor(img_cuerpo, cv2.COLOR_BGR2RGB))
+    #     for p in peaks_originales:
+    #         plt.axvline(x=p, color='r')
+    #     plt.title("Picos detectados (bordes verticales, antes de filtrar)")
+    #     plt.axis('off')
+    #     plt.subplot(1,2,2)
+    #     plt.plot(proj)
+    #     for p in peaks_originales:
+    #         plt.axvline(x=p, color='r', linestyle='--')
+    #     plt.title("Proyección vertical del gradiente")
+    #     plt.tight_layout()
+    #     plt.show()
+
+    peaks = list(peaks)
+    if len(peaks) > 8:
+        #print(f"Se detectaron {len(peaks)} picos, eliminando los impares a menos de 10 px de su par anterior...")
+        i = 1
+        while i < len(peaks) - 1:
+            if abs(peaks[i+1] - peaks[i]) < 7:
+                #print(f"Eliminando pico en posición {i+1} (valor={peaks[i+1]}) por estar muy cerca de {peaks[i]}")
+                del peaks[i+1]
+            i += 2
+        #print("Picos después de eliminar impares demasiado cercanos:", peaks)
+    peaks = np.array(peaks)
+    _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    mask = mask // 255
+    definiciones_colores = definir_colores_hsv()
+
+    if len(peaks) != 8:
+        print("No se detectaron exactamente 8 picos, no se pueden calcular posiciones.")
+        return [], []
+
+    posiciones_centrales = []
+    for i in range(0, len(peaks)-1, 2):
+        x1 = peaks[i]
+        x2 = peaks[i+1]
+        pos_central = (x1 + x2) // 2
+        posiciones_centrales.append(pos_central)
+
+    colores = identificar_colores_bandas(img_cuerpo, posiciones_centrales, mask, definiciones_colores)
+    # mostrar_valores_hsv_por_banda(img_cuerpo, posiciones_centrales, mask)  # Comentado, no queremos promedios
+
+    # if plot and posiciones_centrales is not None:
+    #     img_show = img_cuerpo.copy()
+    #     for x in posiciones_centrales:
+    #         cv2.line(img_show, (int(x), 0), (int(x), img_show.shape[0]), (0,255,0), 1)
+    #     plt.figure(figsize=(8,4))
+    #     plt.imshow(cv2.cvtColor(img_show, cv2.COLOR_BGR2RGB))
+    #     plt.title("Posiciones centrales de bandas y colores detectados")
+    #     plt.axis('off')
+    #     plt.show()
+
+    return peaks, colores
+
 
 def process_all_images():
     """
@@ -180,320 +340,107 @@ def process_all_images():
         cv2.imwrite(os.path.join(OUTPUT_DIR, out_name), warp)
         print(f"Guardada: {out_name}")
 
-def main():
-    # Punto a) y b)
-    process_all_images()
-
-    # Punto c), d) y e): detectar bandas y calcular valor
+def preprocesar():
+    """
+    Procesa todas las imágenes ya rectificadas, recorta el cuerpo de la resistencia (preproceso_deteccion) y guarda ese resultado.
+    """
     for fname in os.listdir(OUTPUT_DIR):
-        if not fname.lower().endswith('_a_out.png') and not fname.lower().endswith('_a_out.jpg') and not fname.lower().endswith('_a_out.tif'):
+        if not fname.lower().endswith(('_a_out.png', '_a_out.jpg', '_a_out.tif')):
             continue
         path = os.path.join(OUTPUT_DIR, fname)
         img = cv2.imread(path)
-        bands = detect_color_bands(img)
-        print(f"{fname}: {bands}")
-        # Aquí calcular valor en Ohm según la codificación de colores
-
-if __name__ == '__main__':
-    main()
-
-#---hasta aca anda el recorte y guardado de imagenes
-#---sigue deteccion de bandas:
-
-import os
-import cv2
-import numpy as np
-from sklearn.cluster import KMeans
-from scipy.signal import find_peaks
-# Diccionario estándar de colores de resistencias
-colores_resistencia = {
-    "Negro": ((0, 0, 0), 0),
-    "Marrón": ((139, 69, 19), 1),
-    "Rojo": ((255, 0, 0), 2),
-    "Naranja": ((255, 165, 0), 3),
-    "Amarillo": ((255, 255, 0), 4),
-    "Verde": ((0, 128, 0), 5),
-    "Azul": ((0, 0, 255), 6),
-    "Violeta": ((128, 0, 128), 7),
-    "Gris": ((128, 128, 128), 8),
-    "Blanco": ((255, 255, 255), 9),
-    "Dorado": ((212, 175, 55), -1),   # x0.1
-    "Plateado": ((192, 192, 192), -2) # x0.01
-}
-
-def proyectar_saturacion(img):
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    sat = hsv[:, :, 1]
-    projection = np.sum(sat, axis=0)
-    return projection
-
-def detectar_picos_saturacion(projection, min_distance=15, threshold_rel=0.4):
-    height = np.max(projection)
-    threshold = height * threshold_rel
-    peaks, _ = find_peaks(projection, distance=min_distance, height=threshold)
-    return peaks
-
-def extraer_color_por_cluster(img, col_x, ancho=10, k=2):
-    h, w, _ = img.shape
-    x_start = max(0, col_x - ancho)
-    x_end = min(w, col_x + ancho)
-    region = img[:, x_start:x_end].reshape(-1, 3)
-
-    kmeans = KMeans(n_clusters=k, n_init=10)
-    labels = kmeans.fit_predict(region)
-    counts = np.bincount(labels)
-    main_color = kmeans.cluster_centers_[np.argmax(counts)].astype(int)
-
-    return tuple(main_color)
-
-def distancia_rgb(c1, c2):
-    return np.linalg.norm(np.array(c1) - np.array(c2))
-
-def clasificar_color(detectado, tabla_colores, umbral=60):
-    min_dist = float('inf')
-    mejor_nombre = "Desconocido"
-    for nombre, (ref_rgb, _) in tabla_colores.items():
-        dist = distancia_rgb(detectado, ref_rgb)
-        if dist < min_dist:
-            min_dist = dist
-            mejor_nombre = nombre
-    return mejor_nombre if min_dist < umbral else "Desconocido"
-
-def detectar_bandas_y_valor(img):
-    projection = proyectar_saturacion(img)
-    peaks = detectar_picos_saturacion(projection)
-
-    colores_detectados = []
-    for p in peaks:
-        color = extraer_color_por_cluster(img, p)
-        nombre_color = clasificar_color(color, colores_resistencia)
-        if nombre_color != "Desconocido" and nombre_color not in colores_detectados:
-            colores_detectados.append(nombre_color)
-        if len(colores_detectados) == 3:
-            break
-
-    if len(colores_detectados) < 3:
-        return colores_detectados, None
-
-    # Calcular el valor de la resistencia
-    d1 = colores_resistencia[colores_detectados[0]][1]
-    d2 = colores_resistencia[colores_detectados[1]][1]
-    multiplicador = colores_resistencia[colores_detectados[2]][1]
-    valor = (10 * d1 + d2) * (10 ** multiplicador)
-    return colores_detectados, valor
-
-
-def procesar_resistencias_en_carpeta(carpeta_imgs):
-    resultados = {}
-    for nombre_archivo in sorted(os.listdir(carpeta_imgs)):
-        if nombre_archivo.endswith('_a_out.jpg'):
-            path = os.path.join(carpeta_imgs, nombre_archivo)
-            img = cv2.imread(path)
-            if img is None:
-                continue
-            bandas, valor = detectar_bandas_y_valor(img)
-            resultados[nombre_archivo] = (bandas, valor)
-    return resultados
-
-
-if __name__ == '__main__':
-    carpeta = r"D:\TUIA\PROCESAMIENTO IMAGEN\TP2_PDI\TP2_PDI_CICORIA_RICCI\Resistencias_out"
-    resultados = procesar_resistencias_en_carpeta(carpeta)
-
-    for archivo, (bandas, valor) in resultados.items():
-        if valor is not None:
-            print(f"{archivo}: Bandas detectadas = {bandas} → Valor = {valor} Ω")
-        else:
-            print(f"{archivo}: Bandas detectadas = {bandas} → Valor no determinado")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def classify_color(bgr):
-
-    """
-    Clasifica un color BGR en uno de los colores estándar de bandas de resistencias.
-    """
-    color_names = {
-        'Negro': (0, 0, 0),
-        'Marrón': (19, 69, 139),
-        'Rojo': (0, 0, 255),
-        'Naranja': (0, 165, 255),
-        'Amarillo': (0, 255, 255),
-        'Verde': (0, 128, 0),
-        'Azul': (255, 0, 0),
-        'Violeta': (211, 0, 148),
-        'Gris': (128, 128, 128),
-        'Blanco': (255, 255, 255),
-        'Dorado': (0, 215, 255),
-        'Plateado': (192, 192, 192)
+        img_preprocesada = preproceso_deteccion(img)
+        if img_preprocesada is None:
+            print(f"[AVISO] No se pudo preprocesar {fname}")
+            continue
+        base_name = os.path.splitext(os.path.basename(fname))[0]
+        out_path = os.path.join(OUTPUT_DIR, f"{base_name}_preprocesada.png")
+        cv2.imwrite(out_path, img_preprocesada)
+        print(f'\nPreprocesando {base_name}...')
+        print(f'Guardada: {base_name}_preprocesada.png')
+
+
+def calculo_ohms(bandas_colores):
+    """ Calcula el valor de una resistencia eléctrica a partir de sus bandas de colores."""
+   # if bandas_colores[0] == 'Dorado': 
+        #invertir resistencias si el primero es dorado
+    #    bandas_colores[0] = bandas_colores[3]
+     #   aux = bandas_colores[1]
+      #  bandas_colores[1] = bandas_colores[2]
+       # bandas_colores[2] = aux
+
+    if len(bandas_colores) < 3:
+        return None  # No se puede calcular
+
+    color1, color2, color3 = bandas_colores[:3]
+    colores_codigo = {
+        "Negro":   (0, 1),
+        "Marrón":  (1, 10),
+        "Rojo":    (2, 100),
+        "Naranja": (3, 1_000),
+        "Amarillo":(4, 10_000),
+        "Verde":   (5, 100_000),
+        "Azul":    (6, 1_000_000),
+        "Violeta": (7, 10_000_000),
+        "Gris":    (8, 100_000_000),
+        "Blanco":  (9, 1_000_000_000)
     }
 
-    min_dist = float('inf')
-    closest_color = 'Desconocido'
-    for name, ref_bgr in color_names.items():
-        dist = np.linalg.norm(bgr - np.array(ref_bgr))
-        if dist < min_dist:
-            min_dist = dist
-            closest_color = name
-
-    return closest_color
-
-def proyectar_saturacion(img):
-    """
-    Calcula la proyección vertical de la saturación.
-    """
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    sat = hsv[:, :, 1]  # Saturación
-    projection = np.sum(sat, axis=0)
-    return projection
-
-def detectar_picos_saturacion(projection, min_distance=15, threshold_rel=0.4):
-    """
-    Detecta picos en la proyección vertical de saturación.
-    """
-    height = np.max(projection)
-    threshold = height * threshold_rel
-    peaks, _ = find_peaks(projection, distance=min_distance, height=threshold)
-    return peaks
-
-def extraer_color_por_cluster(img, col_x, ancho=10, k=2):
-    """
-    Aplica clustering en la región vertical centrada en col_x.
-    """
-    h, w, _ = img.shape
-    x_start = max(0, col_x - ancho)
-    x_end = min(w, col_x + ancho)
-    region = img[:, x_start:x_end].reshape(-1, 3)
-
-    kmeans = KMeans(n_clusters=k, n_init=10)
-    labels = kmeans.fit_predict(region)
-    counts = np.bincount(labels)
-    main_color = kmeans.cluster_centers_[np.argmax(counts)].astype(int)
-
-    return tuple(main_color)
-
-def detect_color_bands(img):
-    projection = proyectar_saturacion(img)
-    peaks = detectar_picos_saturacion(projection)
-
-    colors = []
-    for p in peaks:
-        color = extraer_color_por_cluster(img, p)
-        colors.append(color)
+    try:
+        d1 = colores_codigo[color1][0]
+        d2 = colores_codigo[color2][0]
+        multiplicador = colores_codigo[color3][1]
+        valor = (d1 * 10 + d2) * multiplicador
+        return valor
+    except KeyError:
+        return None  # Color inválido
     
-    return colors
+def formato_resistencia(valor_ohm):
+    """ Formatea un valor de resistencia en ohmios a una representación con unidades legibles."""
+    if valor_ohm >= 1_000_000:
+        return f"{valor_ohm / 1_000_000:.1f} MΩ"
+    elif valor_ohm >= 1_000:
+        return f"{valor_ohm / 1_000:.1f} kΩ"
+    else:
+        return f"{valor_ohm} Ω"
 
-# Colores estándar (podés ajustar estos valores si querés mejor precisión)
-colores_resistencia = {
-    "Negro": (0, 0, 0),
-    "Marrón": (139, 69, 19),
-    "Rojo": (255, 0, 0),
-    "Naranja": (255, 165, 0),
-    "Amarillo": (255, 255, 0),
-    "Verde": (0, 128, 0),
-    "Azul": (0, 0, 255),
-    "Violeta": (128, 0, 128),
-    "Gris": (128, 128, 128),
-    "Blanco": (255, 255, 255),
-    "Dorado": (212, 175, 55),
-    "Plateado": (192, 192, 192)
-}
+def main():
+    """
+    Rectifica todas las imágenes originales.
+    Recorta el cuerpo en todas las imágenes rectificadas.
+    Detecta y muestra los colores de las bandas solo en las imágenes del tipo "a" ya preprocesadas.
+    """
+    process_all_images()        # Rectificar imágenes
+    preprocesar()         # Recortar cuerpo
 
-def distancia_rgb(c1, c2):
-    return np.linalg.norm(np.array(c1) - np.array(c2))
+    # Detección de bandas sobre las preprocesadas:
+    for fname in os.listdir(OUTPUT_DIR):
+        if not fname.lower().endswith(('_preprocesada.png', '_preprocesada.jpg', '_preprocesada.tif')):
+            continue
+        if "a" not in fname:
+            continue
+        path = os.path.join(OUTPUT_DIR, fname)
+        img = cv2.imread(path)
+        if img is None:
+            print(f"No se pudo cargar la imagen: {path}")
+            continue
+        picos_colores = detectar_bandas_sobel_y_colores(img, plot=True)
+        if (
+            picos_colores is None
+            or picos_colores[0] is None
+            or picos_colores[1] is None
+        ):
+            print(f"Saltando imagen {fname} porque no se detectaron 8 picos.")
+            continue
+        
+        picos, bandas_colores = picos_colores
+        if bandas_colores[-1] != 'Dorado': #invierto los colores si el ultimo es dorado
+            bandas_colores = list(reversed(bandas_colores))
 
-def clasificar_color(detectado, tabla_colores):
-    min_dist = float('inf')
-    color_clasificado = None
-    for nombre, ref in tabla_colores.items():
-        dist = distancia_rgb(detectado, ref)
-        if dist < min_dist:
-            min_dist = dist
-            color_clasificado = nombre
-    return color_clasificado, min_dist
+        print(f"\nImagen {fname} - Bandas detectadas:", bandas_colores)
+        ohms = calculo_ohms(bandas_colores)
+        resultado = formato_resistencia(ohms)
+        print(f"La resistencia {fname} es de {resultado}")
 
-def detectar_colores_vertical(img, n_puntos=20):
-    alto, ancho, _ = img.shape
-    x = ancho // 2
-    colores = []
-    for y in np.linspace(0, alto-1, n_puntos).astype(int):
-        colores.append(tuple(int(c) for c in img[y, x]))
-    return colores
-
-def filtrar_y_clasificar_colores(colores, tabla_colores, umbral=60):
-    clasificados = []
-    for color in colores:
-        nombre, dist = clasificar_color(color, tabla_colores)
-        if dist < umbral:
-            clasificados.append((nombre, dist))
-    return clasificados
-
-def procesar_resistencias_en_carpeta(carpeta_imgs):
-    resultados = {}
-    for nombre_archivo in sorted(os.listdir(carpeta_imgs)):
-        if nombre_archivo.endswith('_a_out.jpg'):
-            path = os.path.join(carpeta_imgs, nombre_archivo)
-            img = cv2.imread(path)
-            colores = detectar_colores_vertical(img, n_puntos=30)
-            clasificados = filtrar_y_clasificar_colores(colores, colores_resistencia, umbral=60)
-
-            # Tomamos los 3 colores más frecuentes (en orden de aparición)
-            bandas = []
-            for nombre, _ in clasificados:
-                if nombre not in bandas:
-                    bandas.append(nombre)
-                if len(bandas) == 3:
-                    break
-
-            resultados[nombre_archivo] = bandas
-
-    return resultados
-
-if __name__ == '__main__':
-    carpeta = r"D:\TUIA\PROCESAMIENTO IMAGEN\TP2_PDI\TP2_PDI_CICORIA_RICCI\Resistencias_out"
-    resultados = procesar_resistencias_en_carpeta(carpeta)
-
-    for archivo, bandas in resultados.items():
-        print(f"{archivo}: {bandas}")
-
+if __name__ == "__main__":
+    main()
