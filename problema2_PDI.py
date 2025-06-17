@@ -7,8 +7,12 @@ from operator import itemgetter
 from scipy.signal import find_peaks
 from pathlib import Path
 
-INPUT_DIR = r"D:\TUIA\PROCESAMIENTO IMAGEN\TP2_PDI\TP2_PDI_CICORIA_RICCI\Resistencias"
-OUTPUT_DIR = r"D:\TUIA\PROCESAMIENTO IMAGEN\TP2_PDI\TP2_PDI_CICORIA_RICCI\Resistencias_out"
+# Obtener el directorio donde está ubicado el script
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Construir rutas relativas
+INPUT_DIR = os.path.join(BASE_DIR, "Resistencias")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Resistencias_out")
 DEBUG_DIR = "debug_fallas"
 
 def rectify_resistor(image_path):
