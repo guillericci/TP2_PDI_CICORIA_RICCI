@@ -69,7 +69,7 @@ TP2-PDI/
 ├── placa.png                             # Imagen de la placa (problema 1)
 ├── problema1_PDI.py                     # Script para el Problema 1
 ├── problema2_PDI.py                     # Script para el Problema 2
-├── placa.png                             # Imagen de la placa (problema 1)
+├── informe-TP2-PDI                      # Informe del trabajo practico
 └── directorio-env/                       # Entorno virtual (no subir a GitHub)
 ````
 
@@ -77,10 +77,10 @@ TP2-PDI/
 
 Dependiendo del problema que se desee resolver, ejecutar uno de los siguientes comandos:
 ```bash
-python problema_1_PDI.py
+python problema1_PDI.py
 ```
 o
 ```bash
-python problema_2_PDI.py
+python problema2_PDI.py
 ```
 
